@@ -17,11 +17,11 @@ Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth')->n
 Route::middleware('auth')->group(function (): void {
     Route::get('/', [CampaignController::class, 'index'])->name('campaign.index');
     Route::post('/campaign/generate', [CampaignController::class, 'generate'])->name('campaign.generate');
-    Route::get('/campaign/{campaign}', [CampaignController::class, 'show'])->name('campaign.show');
-    Route::post('/campaign/{campaign}/improve', [CampaignController::class, 'improve'])->name('campaign.improve');
-    Route::put('/campaign/{campaign}/copy', [CampaignController::class, 'updateCopy'])->name('campaign.update-copy');
-    Route::post('/campaign/{campaign}/schedule', [CampaignController::class, 'schedulePost'])->name('campaign.schedule-post');
-    Route::delete('/campaign/{campaign}', [CampaignController::class, 'destroy'])->name('campaign.destroy');
+    Route::get('/campaign/{campaign}', [CampaignController::class, 'show'])->name('campaign.show')->whereNumber('campaign');
+    Route::post('/campaign/{campaign}/improve', [CampaignController::class, 'improve'])->name('campaign.improve')->whereNumber('campaign');
+    Route::put('/campaign/{campaign}/copy', [CampaignController::class, 'updateCopy'])->name('campaign.update-copy')->whereNumber('campaign');
+    Route::post('/campaign/{campaign}/schedule', [CampaignController::class, 'schedulePost'])->name('campaign.schedule-post')->whereNumber('campaign');
+    Route::delete('/campaign/{campaign}', [CampaignController::class, 'destroy'])->name('campaign.destroy')->whereNumber('campaign');
 
     // Single Image Generator Routes
     Route::get('/single-image', [ImageGenerationController::class, 'index'])->name('image-generator.index');
