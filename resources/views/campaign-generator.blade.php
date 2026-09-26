@@ -1980,16 +1980,20 @@
                                     </div>
                                 </div>
 
-                                <!-- Distinct Mode -->
-                                <div class="select-card" id="modeCardDistinct" onclick="selectImageMode('distinct', this)">
+                                <!-- Distinct Mode — Disabled (token quota) -->
+                                <div class="select-card select-card-disabled" id="modeCardDistinct" title="Unavailable — token quota reached" style="opacity:0.45;cursor:not-allowed;pointer-events:none;position:relative;">
                                     <div class="select-card-header">
                                         <div class="select-card-title">
                                             <span>🎭</span>
                                             <span>3 Distinct Scene Shots</span>
                                         </div>
+                                        <span style="font-size:10px;font-weight:700;background:rgba(251,191,36,0.15);color:#fbbf24;border:1px solid rgba(251,191,36,0.35);border-radius:6px;padding:3px 8px;letter-spacing:0.5px;white-space:nowrap;">⚠️ TOKEN LIMIT</span>
                                     </div>
                                     <div class="select-card-desc">
                                         Renders 3 totally separate AI visuals for each platform (different camera angles, lighting & compositions).
+                                    </div>
+                                    <div style="margin-top:10px;font-size:11px;color:#fbbf24;background:rgba(251,191,36,0.08);border:1px dashed rgba(251,191,36,0.3);border-radius:8px;padding:7px 10px;line-height:1.5;">
+                                        🔒 <strong>Temporarily disabled</strong> — available token quota has been reached. This feature will automatically re-enable once tokens are replenished.
                                     </div>
                                 </div>
                             </div>
