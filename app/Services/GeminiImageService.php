@@ -16,6 +16,10 @@ class GeminiImageService
 
     protected string $baseUrl;
 
+    protected ?string $cloudflareAccountId;
+
+    protected ?string $cloudflareApiToken;
+
     /**
      * Create a new service instance.
      */
@@ -24,6 +28,17 @@ class GeminiImageService
         $this->apiKey = config('services.gemini.api_key') ?: null;
         $this->defaultModel = config('services.gemini.model', 'gemini-2.5-flash-image');
         $this->baseUrl = config('services.gemini.base_url', 'https://generativelanguage.googleapis.com/v1beta');
+
+        $this->cloudflareAccountId = config('services.cloudflare.account_id') ?: null;
+        $this->cloudflareApiToken = config('services.cloudflare.api_token') ?: null;
+    }
+
+    /**
+     * Check if Cloudflare Workers AI is configured.
+     */
+    public function hasCloudflare(): bool
+    {
+        return ! empty(config('services.cloudflare.account_id')) && ! empty(config('services.cloudflare.api_token'));
     }
 
     /**
@@ -33,7 +48,7 @@ class GeminiImageService
     {
         $key = $this->resolveApiKey($customApiKey);
 
-        return ! empty($key);
+        return ! empty($key) || $this->hasCloudflare();
     }
 
     /**
@@ -77,14 +92,75 @@ class GeminiImageService
         }
 
         $apiKey = $this->resolveApiKey($customApiKey);
-        if (empty($apiKey)) {
+
+        if (empty($apiKey) && ! $this->hasCloudflare()) {
             throw new GeminiApiException(
-                'Google Gemini API key not found. Please set GEMINI_API_KEY in your .env file.',
+                'AI credentials not found. Please set GEMINI_API_KEY or CLOUDFLARE_API_TOKEN in your .env file.',
                 401
             );
         }
 
-        return $this->callGeminiApi($prompt, $aspectRatio, $model, $apiKey);
+        // 1. Try Cloudflare Workers AI FLUX if configured (High Quality + Free Daily Quota)
+        if ($this->hasCloudflare()) {
+            $image = $this->generateWithCloudflareFlux($prompt, $aspectRatio);
+            if ($image) {
+                return $image;
+            }
+        }
+
+        // 2. Try Google Gemini Nano Banana
+        if (! empty($apiKey)) {
+            return $this->callGeminiApi($prompt, $aspectRatio, $model, $apiKey);
+        }
+
+        // 3. Fallback to free AI generator
+        return $this->generateWithFreeFallback($prompt, $aspectRatio);
+    }
+
+    /**
+     * Generate image using Cloudflare Workers AI (FLUX.1-schnell).
+     */
+    public function generateWithCloudflareFlux(string $prompt, string $aspectRatio): ?GeneratedImage
+    {
+        if (! $this->hasCloudflare()) {
+            return null;
+        }
+
+        // If the prompt is in Bengali, translate and enrich it with authentic cultural details using Gemini Flash
+        $visualPrompt = $this->containsBengali($prompt)
+            ? $this->translateBengaliPrompt($prompt)
+            : $prompt;
+
+        $url = "https://api.cloudflare.com/client/v4/accounts/{$this->cloudflareAccountId}/ai/run/@cf/black-forest-labs/flux-1-schnell";
+
+        try {
+            $response = Http::withToken($this->cloudflareApiToken)->timeout(60)->post($url, [
+                'prompt' => $visualPrompt,
+            ]);
+
+            if ($response->successful()) {
+                $base64 = $response->json('result.image');
+                if (! empty($base64)) {
+                    $binary = base64_decode($base64);
+                    $filename = 'generated-images/'.Str::uuid().'.jpg';
+                    Storage::disk('public')->put($filename, $binary);
+
+                    return GeneratedImage::create([
+                        'prompt' => $prompt,
+                        'enhanced_prompt' => $visualPrompt !== $prompt ? $visualPrompt : null,
+                        'aspect_ratio' => $aspectRatio,
+                        'model' => 'FLUX.1-schnell (Cloudflare Workers AI)',
+                        'image_path' => $filename,
+                        'mime_type' => 'image/jpeg',
+                        'file_size' => strlen($binary),
+                    ]);
+                }
+            }
+        } catch (\Throwable) {
+            // Silently fall back to next provider if Cloudflare has network issue
+        }
+
+        return null;
     }
 
     /**
@@ -182,7 +258,12 @@ class GeminiImageService
             default => [1024, 1024],
         };
 
-        $url = 'https://image.pollinations.ai/prompt/'.rawurlencode($prompt)."?width={$width}&height={$height}&nologo=true";
+        // If the prompt contains Bengali, translate and enhance it using Gemini's free text model
+        $enhancedPrompt = $this->containsBengali($prompt)
+            ? $this->translateBengaliPrompt($prompt)
+            : $prompt;
+
+        $url = 'https://image.pollinations.ai/prompt/'.rawurlencode($enhancedPrompt)."?width={$width}&height={$height}&nologo=true";
 
         $response = Http::timeout(60)->get($url);
 
@@ -200,7 +281,7 @@ class GeminiImageService
             ]);
         }
 
-        throw new GeminiApiException('Google Gemini quota is 0, and fallback generation failed.', 429);
+        throw new GeminiApiException('Image generation failed. Please try again.', 429);
     }
 
     /**
@@ -270,5 +351,54 @@ SVG;
         $validRatios = ['1:1', '16:9', '9:16', '4:3', '3:4'];
 
         return in_array($ratio, $validRatios, true) ? $ratio : '1:1';
+    }
+
+    /**
+     * Check if string contains Bengali Unicode characters.
+     */
+    public function containsBengali(string $text): bool
+    {
+        return (bool) preg_match('/[\x{0980}-\x{09FF}]/u', $text);
+    }
+
+    /**
+     * Translate and enrich a Bengali prompt into a high-detail visual prompt using Gemini Flash.
+     */
+    public function translateBengaliPrompt(string $prompt, ?string $apiKey = null): string
+    {
+        $key = $this->resolveApiKey($apiKey);
+        if (empty($key)) {
+            return $prompt;
+        }
+
+        try {
+            $endpoint = rtrim($this->baseUrl, '/').'/models/gemini-3-flash-preview:generateContent';
+
+            $response = Http::withHeaders([
+                'Content-Type' => 'application/json',
+                'x-goog-api-key' => $key,
+            ])->timeout(15)->post($endpoint, [
+                'contents' => [
+                    [
+                        'parts' => [
+                            [
+                                'text' => 'Translate and convert this Bengali prompt into a concise, vivid English photo prompt for an AI image generator preserving authentic West Bengal / Bengali cultural context (only return the prompt, no conversational filler or quotes): '.$prompt,
+                            ],
+                        ],
+                    ],
+                ],
+            ]);
+
+            if ($response->successful()) {
+                $text = trim((string) $response->json('candidates.0.content.parts.0.text'));
+                if ($text !== '') {
+                    return $text;
+                }
+            }
+        } catch (\Throwable) {
+            // Silently fallback to original prompt on translation error
+        }
+
+        return $prompt;
     }
 }

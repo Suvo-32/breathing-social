@@ -20,7 +20,7 @@ class ImageGenerationTest extends TestCase
 
     public function test_image_generator_page_renders_successfully(): void
     {
-        $response = $this->get('/');
+        $response = $this->get('/single-image');
 
         $response->assertStatus(200);
         $response->assertSee('Gemini Nano Banana');
@@ -117,7 +117,11 @@ class ImageGenerationTest extends TestCase
 
     public function test_returns_error_when_api_key_is_missing(): void
     {
-        config(['services.gemini.api_key' => null]);
+        config([
+            'services.gemini.api_key' => null,
+            'services.cloudflare.account_id' => null,
+            'services.cloudflare.api_token' => null,
+        ]);
 
         $response = $this->postJson('/generate', [
             'prompt' => 'A cute cat wearing sunglasses',
