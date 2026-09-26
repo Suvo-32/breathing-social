@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\GeneratedImage;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -16,6 +17,8 @@ class ImageGenerationTest extends TestCase
     {
         parent::setUp();
         Storage::fake('public');
+        $user = User::factory()->create();
+        $this->actingAs($user);
     }
 
     public function test_image_generator_page_renders_successfully(): void

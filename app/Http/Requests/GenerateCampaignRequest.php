@@ -28,6 +28,11 @@ class GenerateCampaignRequest extends FormRequest
             'tone' => ['nullable', 'string', 'max:100'],
             'image_mode' => ['nullable', 'string', 'in:unified,distinct'],
             'actor' => ['nullable', 'string', 'max:100'],
+            'publish_date' => ['nullable', 'string', 'max:100'],
+            'scheduled_at' => ['nullable', 'date'],
+            'instagram_scheduled_at' => ['nullable', 'date'],
+            'youtube_scheduled_at' => ['nullable', 'date'],
+            'x_scheduled_at' => ['nullable', 'date'],
         ];
     }
 

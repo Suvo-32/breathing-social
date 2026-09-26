@@ -143,7 +143,7 @@ class GeminiImageService
                 if (! empty($base64)) {
                     $binary = base64_decode($base64);
                     $filename = 'generated-images/'.Str::uuid().'.jpg';
-                    Storage::disk('public')->put($filename, $binary);
+                    $this->saveToPublicAndStorage($filename, $binary);
 
                     return GeneratedImage::create([
                         'prompt' => $prompt,
@@ -263,13 +263,33 @@ class GeminiImageService
             ? $this->translateBengaliPrompt($prompt)
             : $prompt;
 
-        $url = 'https://image.pollinations.ai/prompt/'.rawurlencode($enhancedPrompt)."?width={$width}&height={$height}&nologo=true";
+        $url = 'https://image.pollinations.ai/prompt/'.rawurlencode($enhancedPrompt)."?width={$width}&height={$height}&nologo=true&model=flux";
 
         $response = Http::timeout(60)->get($url);
 
         if ($response->successful() && strlen($response->body()) > 1000) {
+            $binary = $response->body();
+
+            // Auto-strip bottom watermark banner if present
+            $src = @imagecreatefromstring($binary);
+            if ($src) {
+                $srcW = imagesx($src);
+                $srcH = imagesy($src);
+                // Crop bottom 36 pixels where pollinations.ai watermark is stamped
+                $cropH = max(100, $srcH - 36);
+                $cropped = imagecrop($src, ['x' => 0, 'y' => 0, 'width' => $srcW, 'height' => $cropH]);
+                if ($cropped) {
+                    ob_start();
+                    imagejpeg($cropped, null, 92);
+                    $cleanBinary = (string) ob_get_clean();
+                    imagedestroy($cropped);
+                    $binary = $cleanBinary;
+                }
+                imagedestroy($src);
+            }
+
             $filename = 'generated-images/'.Str::uuid().'.jpg';
-            Storage::disk('public')->put($filename, $response->body());
+            $this->saveToPublicAndStorage($filename, $binary);
 
             return GeneratedImage::create([
                 'prompt' => $prompt,
@@ -277,11 +297,25 @@ class GeminiImageService
                 'model' => 'gemini-nano-banana (free-fallback)',
                 'image_path' => $filename,
                 'mime_type' => 'image/jpeg',
-                'file_size' => strlen($response->body()),
+                'file_size' => strlen($binary),
             ]);
         }
 
         throw new GeminiApiException('Image generation failed. Please try again.', 429);
+    }
+
+    /**
+     * Helper to write to both public disk and physical public/campaign-images/ folder.
+     */
+    protected function saveToPublicAndStorage(string $filename, string $binary): void
+    {
+        Storage::disk('public')->put($filename, $binary);
+
+        $publicDir = public_path('campaign-images');
+        if (! file_exists($publicDir)) {
+            @mkdir($publicDir, 0755, true);
+        }
+        @file_put_contents($publicDir.'/'.basename($filename), $binary);
     }
 
     /**
@@ -298,7 +332,7 @@ class GeminiImageService
         $extension = $mimeType === 'image/jpeg' ? 'jpg' : 'png';
         $filename = 'generated-images/'.Str::uuid().'.'.$extension;
 
-        Storage::disk('public')->put($filename, $binary);
+        $this->saveToPublicAndStorage($filename, $binary);
 
         return GeneratedImage::create([
             'prompt' => $prompt,
@@ -372,7 +406,8 @@ SVG;
         }
 
         try {
-            $endpoint = rtrim($this->baseUrl, '/').'/models/gemini-3-flash-preview:generateContent';
+            $model = config('services.gemini.text_model', 'gemini-3.8-flash');
+            $endpoint = rtrim($this->baseUrl, '/')."/models/{$model}:generateContent";
 
             $response = Http::withHeaders([
                 'Content-Type' => 'application/json',
